@@ -1,6 +1,6 @@
 import asyncio
 import websockets
-import requests
+import aiohttp
 import ipaddress
 import json
 import ssl
@@ -18,7 +18,7 @@ AUDIO_DURATION = 3
 OVERLAP_DURATION_MS = 300
 BYTES_PER_SAMPLE = 2
 OVERLAP_SIZE = (SAMPLE_RATE * BYTES_PER_SAMPLE * OVERLAP_DURATION_MS) // 1000
-LONG_CHUNK_AMOUNT = 5
+LONG_AUDIO_AMOUNT = 5
 RECORDINGS_DIR = "recordings"
 
 # Ensure 'recordings' directory exists
@@ -62,7 +62,35 @@ async def save_audio(filename, audio_data):
     # Here you would add any additional logic for handling the audio, such as transcription.
 
 
-async def websocket_server(websocket, path):
+async def transcribe_audio(filename, size, ws):
+    if size == 'short':
+        flask_server_url = 'http://localhost:8001/transcribeshort'
+    else:
+        flask_server_url = 'http://localhost:8002/transcribelong'
+    payload = {
+        'audio_file_path': os.path.join(RECORDINGS_DIR, filename),
+        'audio_size': size
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(flask_server_url, json=payload) as response:
+            if response.status == 200:
+                print("Audio sent for transcription")
+                transcription_data = await response.json()
+                transcription = transcription_data.get('transcription', '')
+                message = {
+                    "transcript": transcription,
+                    "audio_size": size
+                }
+                json_message = json.dumps(message)
+                await ws.send(json_message)
+                print("Transcription:", transcription)
+            else:
+                print("Failed to send audio to transcription server.",
+                      response.status)
+
+
+async def websocket_server(websocket):
     # Add client to set of connected clients
     connected_clients.add(websocket)
 
@@ -76,16 +104,18 @@ async def websocket_server(websocket, path):
         print(f"{websocket.remote_address[0]} has connected")
 
         sequence = 0
+        audio_saved = 0
         combined_chunks = bytearray()
+        long_chunks = bytearray()
         total_audio_bytes = SAMPLE_RATE * BYTES_PER_SAMPLE * AUDIO_DURATION
         overlap_buffer = bytearray()
-        previous_audio_buffer = bytearray()
 
         try:
             async for message in websocket:
                 if isinstance(message, bytes):
                     # Audio chunk handling logic here
                     combined_chunks.extend(message)
+                    long_chunks.extend(message)
 
                     # Check if we have 3 seconds worth of audio
                     while len(combined_chunks) >= total_audio_bytes + OVERLAP_SIZE:
@@ -102,6 +132,19 @@ async def websocket_server(websocket, path):
                         combined_chunks = combined_chunks[total_audio_bytes + OVERLAP_SIZE:]
 
                         sequence += 1
+                        audio_saved += 1
+
+                        await transcribe_audio(filename, 'short', websocket)
+
+                        if audio_saved % LONG_AUDIO_AMOUNT == 0:
+                            print(f"audio_saved = {audio_saved}")
+                            filename = f"combinedaudio_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{sequence}.wav"
+                            await save_audio(filename, long_chunks)
+
+                            await transcribe_audio(filename, 'long', websocket)
+
+                            long_chunks = bytearray()
+
                 else:
                     # Handle non-binary message (e.g., JSON)
                     print("Received message:", message)
