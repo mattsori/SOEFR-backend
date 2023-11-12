@@ -11,3 +11,5 @@ cloudflare_ips.json
 # Recordings
 recordings/
 
+*.pem
+cloudflare_ips.json
