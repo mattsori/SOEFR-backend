@@ -1,4 +1,13 @@
 # Cudnn Dependency
 libcudnn_cnn_infer.so.8
 
+# Cloudflare certs
+cloudflare-cert.pem
+cloudflare-key.pem
+
+# Cloudflare ips
+cloudflare_ips.json
+
+# Recordings
+recordings/
 
