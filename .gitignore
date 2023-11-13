@@ -4,12 +4,13 @@ libcudnn_cnn_infer.so.8
 # Cloudflare certs
 cloudflare-cert.pem
 cloudflare-key.pem
+*.pem
 
 # Cloudflare ips
 cloudflare_ips.json
 
+# Environment Variables
+*.env
+
 # Recordings
 recordings/
-
-*.pem
-cloudflare_ips.json
