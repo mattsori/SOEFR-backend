@@ -14,3 +14,5 @@ cloudflare_ips.json
 
 # Recordings
 recordings/
+
+__pychache__/

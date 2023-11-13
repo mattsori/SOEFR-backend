@@ -8,6 +8,7 @@ import datetime
 import os
 import wave
 import webrtcvad
+from openai_client import generate_response
 from pathlib import Path
 
 # Constants
@@ -16,7 +17,7 @@ CHANNEL_WIDTH = 1  # Mono audio channel
 SAMPLE_RATE = 48000  # Sample rate for audio in Hz
 AUDIO_DURATION = 3  # Duration of audio in seconds to process at once
 BYTES_PER_SAMPLE = 2  # Number of bytes per sample in the audio
-LONG_AUDIO_AMOUNT = 5  # Number of audio pieces to combine for long audio
+LONG_AUDIO_AMOUNT = 2  # Number of audio pieces to combine for long audio
 RECORDINGS_DIR = "recordings"  # Directory to save recordings
 MAX_SPEECH_LENGTH = SAMPLE_RATE * BYTES_PER_SAMPLE * AUDIO_DURATION  # Max length of speech to process
 MIN_SPEECH_LENGTH = SAMPLE_RATE * BYTES_PER_SAMPLE  # Minimum speech length in bytes (1 second)
@@ -49,6 +50,7 @@ class ConnectionHandler:
         self.long_chunks = bytearray()  # Buffer to hold longer audio for transcription
         self.speech_segment_buffer = bytearray()  # Buffer to hold the current speech segment
         self.silence_duration_ms = 0  # Counter for the duration of silence
+        self.long_transcriptions = {}  # Dictionary to store long transcriptions for each client
 
     # Process incoming WebSocket message
     async def process_message(self, websocket, message):
@@ -121,8 +123,9 @@ class ConnectionHandler:
                 await self.save_audio(filename, self.long_chunks)
 
                 # Transcribe the long audio segment
-                await self.transcribe_audio(filename, 'long', websocket)
-
+                transcription = await self.transcribe_audio(filename, 'long', websocket)
+                await self.save_long_transcription(transcription, websocket)
+                await self.summarize(transcription)
                 # Clear the long chunks buffer
                 self.long_chunks = bytearray()
 
@@ -166,6 +169,32 @@ class ConnectionHandler:
                 message = {"transcript": transcription, "audio_size": size}
                 await ws.send(json.dumps(message))
                 print("Transcription:", transcription)
+
+    # Save the long transcription for the client
+    async def save_long_transcription(self, transcription, websocket):
+        # Use the id() of the websocket as a unique identifier for the client
+        client_id = id(websocket)
+        if client_id not in self.long_transcriptions:
+            self.long_transcriptions[client_id] = []
+        self.long_transcriptions[client_id].append(transcription)
+
+    # Method to get long transcriptions for a specific client
+    def get_long_transcriptions_for_client(self, websocket):
+        client_id = id(websocket)
+        return self.long_transcriptions.get(client_id, [])
+    
+    async def summarize(self, request):
+        instructions = "Summarize the transcription below into bullet points: "
+        # Format request for OpenAI API
+        formattedRequest = {
+            "role": "user",
+            "content": f'{instructions} + {request}'
+        }
+        response = await generate_response(formattedRequest)
+        print(response)
+
+
+
 
 # Check if an IP address is within the allowed Cloudflare range
 async def is_cloudflare_ip(ip):
