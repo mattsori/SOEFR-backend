@@ -7,19 +7,26 @@ import ssl
 import datetime
 import os
 import wave
-import speech_recognition as sr
+import webrtcvad
 from pathlib import Path
 
 # Constants
 WSS_PORT = 8000
 
+CHANNEL_WIDTH = 1  # 1 for mono audio
 SAMPLE_RATE = 48000
 AUDIO_DURATION = 3
-OVERLAP_DURATION_MS = 300
 BYTES_PER_SAMPLE = 2
-OVERLAP_SIZE = (SAMPLE_RATE * BYTES_PER_SAMPLE * OVERLAP_DURATION_MS) // 1000
 LONG_AUDIO_AMOUNT = 5
 RECORDINGS_DIR = "recordings"
+
+# Initialize VAD
+vad = webrtcvad.Vad(1)
+MIN_SPEECH_LENGTH = SAMPLE_RATE * BYTES_PER_SAMPLE  # 1 second of speech
+PHRASE_TIMEOUT_MS = 500  # Timeout after speech ends
+FRAME_DURATION_MS = 30
+FRAME_SIZE = (SAMPLE_RATE * FRAME_DURATION_MS *
+              BYTES_PER_SAMPLE * CHANNEL_WIDTH) // 1000
 
 # Ensure 'recordings' directory exists
 Path(RECORDINGS_DIR).mkdir(parents=True, exist_ok=True)
@@ -78,13 +85,16 @@ async def transcribe_audio(filename, size, ws):
                 print("Audio sent for transcription")
                 transcription_data = await response.json()
                 transcription = transcription_data.get('transcription', '')
-                message = {
-                    "transcript": transcription,
-                    "audio_size": size
-                }
-                json_message = json.dumps(message)
-                await ws.send(json_message)
-                print("Transcription:", transcription)
+                if transcription == '':
+                    print("Audio contains no speech")
+                else:
+                    message = {
+                        "transcript": transcription,
+                        "audio_size": size
+                    }
+                    json_message = json.dumps(message)
+                    await ws.send(json_message)
+                    print("Transcription:", transcription)
             else:
                 print("Failed to send audio to transcription server.",
                       response.status)
@@ -107,44 +117,52 @@ async def websocket_server(websocket):
         audio_saved = 0
         combined_chunks = bytearray()
         long_chunks = bytearray()
-        total_audio_bytes = SAMPLE_RATE * BYTES_PER_SAMPLE * AUDIO_DURATION
-        overlap_buffer = bytearray()
+        max_speech_length = SAMPLE_RATE * BYTES_PER_SAMPLE * AUDIO_DURATION
+        speech_segment_buffer = bytearray()
+        speech_buffer = bytearray()
+        silence_duration_ms = 0
 
         try:
             async for message in websocket:
                 if isinstance(message, bytes):
-                    # Audio chunk handling logic here
-                    combined_chunks.extend(message)
-                    long_chunks.extend(message)
 
-                    # Check if we have 3 seconds worth of audio
-                    while len(combined_chunks) >= total_audio_bytes + OVERLAP_SIZE:
-                        # Save the audio chunk with overlap
-                        audio_data_with_overlap = overlap_buffer + \
-                            combined_chunks[:total_audio_bytes + OVERLAP_SIZE]
-                        filename = f"audio_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{sequence}.wav"
-                        await save_audio(filename, audio_data_with_overlap)
+                    speech_buffer.extend(message)
 
-                        # Prepare the overlap buffer for the next audio chunk
-                        overlap_buffer = combined_chunks[total_audio_bytes:
-                                                         total_audio_bytes + OVERLAP_SIZE]
-                        # Remove the saved audio from the buffer
-                        combined_chunks = combined_chunks[total_audio_bytes + OVERLAP_SIZE:]
+                    while len(speech_buffer) >= FRAME_SIZE:
+                        vad_frame = speech_buffer[:FRAME_SIZE]
+                        speech_buffer = speech_buffer[FRAME_SIZE:]
 
-                        sequence += 1
-                        audio_saved += 1
+                        if vad.is_speech(vad_frame, SAMPLE_RATE):
+                            speech_segment_buffer.extend(vad_frame)
+                            silence_duration_ms = 0  # Reset silence duration when speech is detected
+                        else:
+                            if len(speech_segment_buffer) > 0:
+                                silence_duration_ms += FRAME_DURATION_MS
+                                if silence_duration_ms >= PHRASE_TIMEOUT_MS or len(speech_segment_buffer) + len(combined_chunks) >= max_speech_length:
+                                    # Save and transcribe the speech segment
+                                    combined_chunks.extend(
+                                        speech_segment_buffer)
+                                    speech_segment_buffer = bytearray()  # Reset the speech segment buffer
+                                    silence_duration_ms = 0  # Reset silence duration
+                                    # Now check if we have enough audio to save and transcribe
+                                    if len(combined_chunks) >= MIN_SPEECH_LENGTH:
+                                        filename = f"audio_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{sequence}.wav"
+                                        await save_audio(filename, combined_chunks)
+                                        long_chunks.extend(combined_chunks)
 
-                        await transcribe_audio(filename, 'short', websocket)
+                                        combined_chunks = bytearray()
+                                        sequence += 1
+                                        audio_saved += 1
 
-                        if audio_saved % LONG_AUDIO_AMOUNT == 0:
-                            print(f"audio_saved = {audio_saved}")
-                            filename = f"combinedaudio_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{sequence}.wav"
-                            await save_audio(filename, long_chunks)
+                                        await transcribe_audio(filename, 'short', websocket)
 
-                            await transcribe_audio(filename, 'long', websocket)
+                                        if audio_saved % LONG_AUDIO_AMOUNT == 0:
+                                            filename = f"combinedaudio_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{sequence}.wav"
+                                            await save_audio(filename, long_chunks)
 
-                            long_chunks = bytearray()
+                                            await transcribe_audio(filename, 'long', websocket)
 
+                                            long_chunks = bytearray()
                 else:
                     # Handle non-binary message (e.g., JSON)
                     print("Received message:", message)

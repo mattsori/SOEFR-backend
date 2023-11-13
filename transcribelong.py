@@ -26,7 +26,7 @@ def transcribe_audio():
         try:
             # Transcribe the audio file with voice activity
             segments, info = audio_model.transcribe(
-                audio_file_path, beam_size=5, vad_filter=True)
+                audio_file_path, beam_size=5, vad_filter=True, temperature=0)
             # print("Detected language '%s' with probability %f" %
             #       (info.language, info.language_probability))
 
