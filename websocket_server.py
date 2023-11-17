@@ -17,7 +17,7 @@ CHANNEL_WIDTH = 1  # Mono audio channel
 SAMPLE_RATE = 48000  # Sample rate for audio in Hz
 AUDIO_DURATION = 3  # Duration of audio in seconds to process at once
 BYTES_PER_SAMPLE = 2  # Number of bytes per sample in the audio
-LONG_AUDIO_AMOUNT = 2  # Number of audio pieces to combine for long audio
+LONG_AUDIO_AMOUNT = 5  # Number of audio pieces to combine for long audio
 RECORDINGS_DIR = "recordings"  # Directory to save recordings
 MAX_SPEECH_LENGTH = SAMPLE_RATE * BYTES_PER_SAMPLE * AUDIO_DURATION  # Max length of speech to process
 MIN_SPEECH_LENGTH = SAMPLE_RATE * BYTES_PER_SAMPLE  # Minimum speech length in bytes (1 second)
@@ -87,7 +87,6 @@ class ConnectionHandler:
             self.update_silence_duration()
             # Check if silence has exceeded the timeout or the speech is too long
             if self.should_save_speech_segment():
-                print("Processing speech segments")
                 await self.process_speech_segment(websocket)
 
     def update_silence_duration(self):
@@ -125,7 +124,7 @@ class ConnectionHandler:
                 # Transcribe the long audio segment
                 transcription = await self.transcribe_audio(filename, 'long', websocket)
                 await self.save_long_transcription(transcription, websocket)
-                await self.summarize(transcription)
+
                 # Clear the long chunks buffer
                 self.long_chunks = bytearray()
 
@@ -170,6 +169,11 @@ class ConnectionHandler:
                 await ws.send(json.dumps(message))
                 print("Transcription:", transcription)
 
+                # Initial summarize functionality
+                if not transcription == "" and size == "long":
+                    await self.summarize(transcription, ws)     # Send transcription to AI summarization
+
+
     # Save the long transcription for the client
     async def save_long_transcription(self, transcription, websocket):
         # Use the id() of the websocket as a unique identifier for the client
@@ -183,15 +187,34 @@ class ConnectionHandler:
         client_id = id(websocket)
         return self.long_transcriptions.get(client_id, [])
     
-    async def summarize(self, request):
-        instructions = "Summarize the transcription below into bullet points: "
+    async def summarize(self, request, ws):
+        instructions = "Summarize the transcription below into bullet points, only respond with the bullet points: "
         # Format request for OpenAI API
-        formattedRequest = {
+        formattedRequest = [
+        {
+            "role": "system",
+            "content": "You are to summarize concisely but thoroughly the transcribed audio."
+        },
+        {
             "role": "user",
-            "content": f'{instructions} + {request}'
-        }
-        response = await generate_response(formattedRequest)
-        print(response)
+            "content": f'{instructions} {request}'
+        }]
+
+        print(f"sending request to openai module")
+        try:
+            response = await asyncio.wait_for(generate_response(formattedRequest), timeout=10)  # Set an appropriate timeout value
+            content = response.choices[0].message.content
+            message = {
+                "summary": content
+            }
+            print(f"Summary received: {content}")
+            print("Sending to client")
+            await ws.send(json.dumps(message))
+        except asyncio.TimeoutError:
+            print("OpenAI API request timed out")
+            # Handle the timeout error gracefully, e.g., by sending an error message back to the client or taking other appropriate actions
+        except Exception as error:
+            print(f"Error: {error}")
 
 
 
