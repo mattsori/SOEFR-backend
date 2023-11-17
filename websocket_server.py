@@ -76,6 +76,10 @@ class ConnectionHandler:
             if vad.is_speech(frame, SAMPLE_RATE):
                 self.speech_segment_buffer.extend(frame)
                 self.silence_duration_ms = 0  # Reset silence duration when speech is detected
+
+                # Checks if segment buffer is too long
+                if len(self.speech_segment_buffer) >= MAX_SPEECH_LENGTH:
+                    await self.handle_non_speech_periods(websocket)
             else:
                 # Handle non-speech periods
                 await self.handle_non_speech_periods(websocket)
