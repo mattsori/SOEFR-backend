@@ -46,6 +46,7 @@ class ConnectionHandler:
         self.speech_buffer = bytearray()  # Buffer to hold incoming audio data
         self.sequence = 0  # Sequence number for file naming
         self.audio_saved = 0  # Counter for saved audio files
+        self.long_audio_saved = 0 # Counter for saved long audio files
         self.combined_chunks = bytearray()  # Buffer to combine audio chunks
         self.long_chunks = bytearray()  # Buffer to hold longer audio for transcription
         self.speech_segment_buffer = bytearray()  # Buffer to hold the current speech segment
@@ -59,7 +60,11 @@ class ConnectionHandler:
             await self.process_audio_frame(websocket, message)
         else:
             # Handle non-binary message (JSON)
-            print("Received message:", message)
+            try: 
+                json_object = json.loads(message)
+                await self.summarize(json_object['text'], websocket)
+            except ValueError as e:
+                print("Not valid JSON:", message)
 
     # Handle incoming audio frames
     async def process_audio_frame(self, websocket, audio_frame):
@@ -122,6 +127,7 @@ class ConnectionHandler:
 
             # Every LONG_AUDIO_AMOUNT of audio pieces, transcribe long audio
             if self.audio_saved % LONG_AUDIO_AMOUNT == 0:
+                self.long_audio_saved += 1
                 filename = f"combinedaudio_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{self.sequence}.wav"
                 await self.save_audio(filename, self.long_chunks)
 
@@ -174,7 +180,7 @@ class ConnectionHandler:
                 print("Transcription:", transcription)
 
                 # Initial summarize functionality
-                if not transcription == "" and size == "long":
+                if self.long_audio_saved % 5 == 0 and size == "long":
                     await self.summarize(transcription, ws)     # Send transcription to AI summarization
 
 
@@ -192,7 +198,7 @@ class ConnectionHandler:
         return self.long_transcriptions.get(client_id, [])
     
     async def summarize(self, request, ws):
-        instructions = "Summarize the transcription below into bullet points, only respond with the bullet points: "
+        instructions = "Summarize the transcription below into succinct bullet points, only respond with the bullet points: "
         # Format request for OpenAI API
         formattedRequest = [
         {
@@ -204,9 +210,9 @@ class ConnectionHandler:
             "content": f'{instructions} {request}'
         }]
 
-        print(f"sending request to openai module")
+        print(f"Sending request to openai module: {formattedRequest}")
         try:
-            response = await asyncio.wait_for(generate_response(formattedRequest), timeout=10)  # Set an appropriate timeout value
+            response = await asyncio.wait_for(generate_response(formattedRequest), timeout=30)  # Set an appropriate timeout value
             content = response.choices[0].message.content
             message = {
                 "summary": content

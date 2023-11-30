@@ -10,7 +10,7 @@ client = AsyncOpenAI()
 async def generate_response(request):
     try:
         response = await client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=request
         )
         return response
