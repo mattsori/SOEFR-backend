@@ -4,7 +4,7 @@ import time
 
 app = Flask(__name__)
 
-model_size = "large-v2"
+model_size = "large-v3"
 
 # Run on GPU with FP16
 print("Loading Faster Whisper Model")

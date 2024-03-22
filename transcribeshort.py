@@ -4,13 +4,41 @@ import time
 
 app = Flask(__name__)
 
-model_size = "large-v2"
+model_size = "large-v3"
 
 # Run on GPU with FP16
 print("Loading Faster Whisper Model")
 audio_model = WhisperModel(model_size, device="cuda", compute_type="int8")
 print("Model loaded")
 
+def is_transcription_valid(transcription):
+    print(f"Checking if transcription is valid")
+    # Split transcription into words or phrases
+    words = transcription.split()
+
+    # Re-transcribe if too many words
+    if len(words) > 20:
+        print(f"Too many words")
+        return False
+
+    # Count occurrences of each word
+    word_count = {}
+    for word in words:
+        if word in word_count:
+            word_count[word] += 1
+        else:
+            word_count[word] = 1
+
+    # Check for any word repeated more than three times
+    for word, count in word_count.items():
+        if count > 5:
+            print(f"Word '{word}' repeated {count} times, which is too many")
+            return False
+
+    # Add other checks as needed based on audio duration and content
+    # ...
+
+    return True  # No issues found with repetition
 
 @app.route('/transcribeshort', methods=['POST'])
 def transcribe_audio():
@@ -47,10 +75,15 @@ def transcribe_audio():
                 # In seconds
                 print(f"Transcription took {elapsed_time:.3g} secs")
 
-            # return jsonify({"transcription": transcription})
-            return jsonify({
-                "transcription": transcription
-            })
+            # Check if the transcription is valid
+            if is_transcription_valid(transcription):
+                return jsonify({"transcription": transcription})
+            else:
+                print("Invalid transcription detected, retrying...")
+                transcription = ""  # Reset transcription for a retry
+                retries += 1
+                # Adjust model parameters for retry or use a different strategy
+                continue
 
         except (RuntimeError, FileNotFoundError) as e:
             print(f"Error during transcription: {e}")
