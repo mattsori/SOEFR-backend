@@ -226,9 +226,6 @@ class ConnectionHandler:
         except Exception as error:
             print(f"Error: {error}")
 
-
-
-
 # Check if an IP address is within the allowed Cloudflare range
 async def is_cloudflare_ip(ip):
     return any(ipaddress.ip_address(ip) in network for network in allowed_networks)
@@ -260,6 +257,12 @@ async def websocket_server(websocket, path):
         # Remove the client from the connected set on disconnection
         print(f"{client_ip} has disconnected")
         connected_clients.remove(websocket)
+
+async def start_websocket_server():
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_context.load_cert_chain("cloudflare-cert.pem", "cloudflare-key.pem")
+    async with websockets.serve(websocket_server, '0.0.0.0', WSS_PORT, ssl=ssl_context):
+        await asyncio.Future()  # Run forever
 
 
 if __name__ == '__main__':

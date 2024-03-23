@@ -26,7 +26,7 @@ def transcribe_audio():
         try:
             # Transcribe the audio file with voice activity
             segments, info = audio_model.transcribe(
-                audio_file_path, beam_size=5, vad_filter=True, temperature=0)
+                audio_file_path, beam_size=5, vad_filter=True, word_timestamps=True, temperature=0)
             # print("Detected language '%s' with probability %f" %
             #       (info.language, info.language_probability))
 
@@ -36,6 +36,8 @@ def transcribe_audio():
             for segment in segments:
                 print("[%.2fs -> %.2fs] %s" %
                       (segment.start, segment.end, segment.text))
+                for word in segment.words:
+                    print("[%.2fs -> %.2fs] %s" % (word.start, word.end, word.word))
                 transcription += segment.text
             elapsed_time = time.time() - compute_start_time
 
@@ -71,6 +73,8 @@ def transcribe_audio():
             "error": "Unknown error occurred during transcription"
         }), 500
 
+def start_transcribe_long():
+    app.run(port=8002, use_reloader=False)
 
 if __name__ == '__main__':
     app.run(port=8002)
