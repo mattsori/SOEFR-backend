@@ -49,6 +49,9 @@ def transcribe_audio():
     print("Attempting to transcribe " + str(audio_file_path))
     while retries < max_retries:
         try:
+            print(f"Transcribing {audio_size} audio")
+            compute_start_time = time.time()
+            
             # Transcribe the audio file with voice activity
             segments, info = audio_model.transcribe(
                 audio_file_path, beam_size=5, vad_filter=True, word_timestamps=True, temperature=0)
@@ -56,8 +59,7 @@ def transcribe_audio():
             #       (info.language, info.language_probability))
 
             # Transcription process
-            print(f"Transcribing {audio_size} audio")
-            compute_start_time = time.time()
+
             for segment in segments:
                 print("[%.2fs -> %.2fs] %s" %
                       (segment.start, segment.end, segment.text))

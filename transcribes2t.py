@@ -1,23 +1,22 @@
 from flask import Flask, request, jsonify
-from faster_whisper import WhisperModel
 import time
+import whisper_s2t
 
 app = Flask(__name__)
 
-model_size = "large-v3"
-
-# Run on GPU with FP16
-print("Loading Faster Whisper Model")
-audio_model = WhisperModel(model_size, device="cuda", compute_type="int8")
-print("Model loaded")
+model = whisper_s2t.load_model("large-v2", device="cuda", compute_type="int8", asr_options={'word_timestamps': True})
 
 def is_transcription_valid(transcription, audio_size):
     print(f"Checking if transcription is valid")
-    # Split transcription into words or phrases
     words = transcription.split()
 
+    if audio_size == 'short':
+        size = 3
+    else:
+        size = 15
+
     # Re-transcribe if too many words
-    if len(words) > 20:
+    if len(words) > size*7:
         print(f"Too many words")
         return False
 
@@ -29,9 +28,9 @@ def is_transcription_valid(transcription, audio_size):
         else:
             word_count[word] = 1
 
-    # Check for any word repeated more than three times
+    # Hallucination check: Checks for any word repeated too many times
     for word, count in word_count.items():
-        if count > 5:
+        if count > size*2:
             print(f"Word '{word}' repeated {count} times, which is too many")
             return False
 
@@ -39,9 +38,8 @@ def is_transcription_valid(transcription, audio_size):
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe_audio():
-    audio_file_path = request.json['audio_file_path']
+    audio_file_path = [request.json['audio_file_path']]
     audio_size = request.json['audio_size']
-
     transcription = ""
     max_retries = 3  # Set the maximum number of retries
     retries = 0
@@ -49,21 +47,22 @@ def transcribe_audio():
     print("Attempting to transcribe " + str(audio_file_path))
     while retries < max_retries:
         try:
-            # Transcribe the audio file with voice activity
-            segments, info = audio_model.transcribe(
-                audio_file_path, beam_size=5, vad_filter=True, word_timestamps=True, temperature=0)
-            # print("Detected language '%s' with probability %f" %
-            #       (info.language, info.language_probability))
+            lang_codes = ['en']
+            tasks = ['transcribe']
+            initial_prompts = [None]
 
-            # Transcription process
             print(f"Transcribing {audio_size} audio")
             compute_start_time = time.time()
-            for segment in segments:
-                print("[%.2fs -> %.2fs] %s" %
-                      (segment.start, segment.end, segment.text))
-                for word in segment.words:
-                    print("[%.2fs -> %.2fs] %s" % (word.start, word.end, word.word))
-                transcription += segment.text
+            out = model.transcribe_with_vad(audio_file_path,
+                                            lang_codes=lang_codes,
+                                            tasks=tasks,
+                                            initial_prompts=initial_prompts,
+                                            batch_size=16)
+
+            transcription = out[0][0]['text']
+            print(transcription)
+            # Transcription process
+
             elapsed_time = time.time() - compute_start_time
 
             # Print compute time

@@ -5,6 +5,7 @@ import ipaddress
 import json
 import ssl
 import datetime
+import time
 import os
 import wave
 import webrtcvad
@@ -52,11 +53,14 @@ class ConnectionHandler:
         self.speech_segment_buffer = bytearray()  # Buffer to hold the current speech segment
         self.silence_duration_ms = 0  # Counter for the duration of silence
         self.long_transcriptions = {}  # Dictionary to store long transcriptions for each client
+        self.processing_start_time = None  # Add a variable to track processing start time
 
     # Process incoming WebSocket message
     async def process_message(self, websocket, message):
         # Binary message handling (audio data)
         if isinstance(message, bytes):
+            if self.processing_start_time is None:  # Start the timer when the first audio message is received
+                self.processing_start_time = time.time()
             await self.process_audio_frame(websocket, message)
         else:
             # Handle non-binary message (JSON)
@@ -65,6 +69,15 @@ class ConnectionHandler:
                 await self.summarize(json_object['text'], websocket)
             except ValueError as e:
                 print("Not valid JSON:", message)
+
+    # Call this function when transcription is sent to client to calculate and print processing time
+    def print_processing_time(self):
+        if self.processing_start_time is not None:
+            processing_end_time = time.time()
+            processing_time = processing_end_time - self.processing_start_time
+            print(f"Processing time: {processing_time:.2f} seconds")
+            self.processing_start_time = None  # Reset the timer for the next audio message
+
 
     # Handle incoming audio frames
     async def process_audio_frame(self, websocket, audio_frame):
@@ -152,7 +165,7 @@ class ConnectionHandler:
 
     # Send audio data to transcription service and handle the response
     async def transcribe_audio(self, filename, size, ws):
-        flask_server_url = f'http://localhost:800{1 if size == "short" else 2}/transcribe{size}'
+        flask_server_url = f'http://localhost:8001/transcribe'
         payload = {'audio_file_path': os.path.join(
             RECORDINGS_DIR, filename), 'audio_size': size}
 
@@ -178,6 +191,9 @@ class ConnectionHandler:
                 message = {"transcript": transcription, "audio_size": size}
                 await ws.send(json.dumps(message))
                 print("Transcription:", transcription)
+
+                # After sending the transcript, calculate and print processing time
+                self.print_processing_time()
 
                 # Initial summarize functionality
                 if self.long_audio_saved % 5 == 0 and size == "long":
