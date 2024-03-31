@@ -2,14 +2,15 @@ from flask import Flask, request, jsonify
 import time
 import whisper_s2t
 
+WHISPER_MODEL = "medium.en"
+
 app = Flask(__name__)
 
-model = whisper_s2t.load_model("large-v2", device="cuda", compute_type="int8", asr_options={'word_timestamps': True})
+model = whisper_s2t.load_model(WHISPER_MODEL, device="cuda", compute_type="int8", asr_options={'word_timestamps': True})
+print(f"{WHISPER_MODEL} loaded")
 
 def is_transcription_valid(transcription, audio_size):
-    print(f"Checking if transcription is valid")
     words = transcription.split()
-
     if audio_size == 'short':
         size = 3
     else:
@@ -57,7 +58,7 @@ def transcribe_audio():
                                             lang_codes=lang_codes,
                                             tasks=tasks,
                                             initial_prompts=initial_prompts,
-                                            batch_size=16)
+                                            batch_size=24)
 
             transcription = out[0][0]['text']
             print(transcription)

@@ -7,7 +7,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Flask
-RUN pip3 install --no-cache-dir Flask
+RUN pip3 install --no-cache-dir Flask gunicorn
 
 # Install WhisperS2T from the GitHub repository
 RUN pip3 install --no-cache-dir git+https://github.com/shashikg/WhisperS2T
@@ -22,4 +22,4 @@ WORKDIR /app
 COPY transcribes2t.py /app/
 
 # Command to run the application
-CMD ["python3", "transcribes2t.py"]
+CMD ["gunicorn", "--bind=0.0.0.0:8001", "transcribes2t:app"]
