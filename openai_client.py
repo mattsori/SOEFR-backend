@@ -1,5 +1,5 @@
-from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from dotenv import load_dotenv # type: ignore
+from openai import AsyncOpenAI # type: ignore
 
 # Load the environment variables from the .env file
 load_dotenv()
