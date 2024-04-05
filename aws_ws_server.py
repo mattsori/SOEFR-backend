@@ -20,7 +20,7 @@ s3_client = boto3.client('s3')
 BUCKET_NAME = 'bucket-soefr'
 
 # Constants
-WSS_PORT = 8000  # The WebSocket server port
+WSS_PORT = 2096  # The WebSocket server port
 CHANNEL_WIDTH = 1  # Mono audio channel
 SAMPLE_RATE = 48000  # Sample rate for audio in Hz
 AUDIO_DURATION = 3  # Duration of audio in seconds to process at once
