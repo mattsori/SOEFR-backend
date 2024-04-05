@@ -162,17 +162,24 @@ class ConnectionHandler:
     async def save_audio(self, filename, audio_data):
         try:
             num_frames = len(audio_data) // BYTES_PER_SAMPLE
-            with wave.open(io.BytesIO(), 'wb') as wf:
-                wf.setnchannels(CHANNEL_WIDTH)
-                wf.setsampwidth(BYTES_PER_SAMPLE)
-                wf.setframerate(SAMPLE_RATE)
-                wf.setnframes(num_frames)
-                wf.writeframes(audio_data)
-                audio_bytes = wf.fp.getvalue()
+            # Use an io.BytesIO object as a file-like object
+            with io.BytesIO() as audio_buffer:
+                with wave.open(audio_buffer, 'wb') as wf:
+                    wf.setnchannels(CHANNEL_WIDTH)
+                    wf.setsampwidth(BYTES_PER_SAMPLE)
+                    wf.setframerate(SAMPLE_RATE)
+                    wf.setnframes(num_frames)
+                    wf.writeframes(audio_data)
+                    audio_buffer.seek(0)  # Rewind to the beginning of the buffer
+
+                # Read the contents of the buffer
+                audio_bytes = audio_buffer.read()
+            
+            # Upload the audio bytes to S3
             s3_client.put_object(Bucket=BUCKET_NAME, Key=filename, Body=audio_bytes)
-            print(f"{filename} saved.")
+            print(f"{filename} saved to S3.")
         except NoCredentialsError:
-            print('Credentials not available for AWS S3')
+            print("Credentials not available for AWS S3.")
 
     # Send audio data to transcription service and handle the response
     async def transcribe_audio(self, filename, size, ws):
